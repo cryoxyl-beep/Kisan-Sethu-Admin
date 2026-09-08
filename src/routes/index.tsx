@@ -3,6 +3,8 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
+import Bookings from '@/pages/Bookings';
+import Farmers from '@/pages/Farmers';
 import Placeholder from '@/components/Placeholder';
 
 const router = createBrowserRouter([
@@ -24,7 +26,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'bookings',
-        element: <Placeholder title="Bookings Management" />,
+        element: <Bookings />,
       },
       {
         path: 'queue',
@@ -36,7 +38,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'farmers',
-        element: <Placeholder title="Farmer Directory" />,
+        element: <Farmers />,
       },
       {
         path: 'settings',
