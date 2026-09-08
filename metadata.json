@@ -1,0 +1,6 @@
+{
+  "name": "Kissaan Sync Admin Dashboard",
+  "description": "Admin dashboard for managing Kissaan Sync bookings, queue, and farmers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
