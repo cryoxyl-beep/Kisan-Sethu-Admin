@@ -1,6 +1,32 @@
-import { collection, query, onSnapshot, getDocs, limit, orderBy } from 'firebase/firestore';
+import { collection, query, onSnapshot, getDocs, limit, orderBy, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Booking } from '@/types';
+
+export async function confirmBooking(bookingId: string, adminUid: string): Promise<void> {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  
+  await runTransaction(db, async (transaction) => {
+    const bookingDoc = await transaction.get(bookingRef);
+    if (!bookingDoc.exists()) {
+      throw new Error("Booking does not exist.");
+    }
+    
+    const data = bookingDoc.data();
+    const currentStatus = (data.status || '').toUpperCase().trim();
+    
+    if (currentStatus === 'CONFIRMED') {
+      throw new Error("ALREADY_CONFIRMED");
+    }
+    
+    // Partially update the booking
+    transaction.update(bookingRef, {
+      status: 'CONFIRMED',
+      updatedAt: serverTimestamp(),
+      confirmedAt: serverTimestamp(),
+      confirmedBy: adminUid
+    });
+  });
+}
 
 export function subscribeToRecentBookings(
   callback: (bookings: Booking[]) => void,

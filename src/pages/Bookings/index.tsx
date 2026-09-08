@@ -1,10 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Loader2, AlertCircle, Search, Filter, X } from 'lucide-react';
+import { Loader2, AlertCircle, Search, Filter, X, CheckCircle2 } from 'lucide-react';
 import { cn, formatDateToIST } from '@/lib/utils';
-import { getAllBookings } from '@/services/bookings';
+import { getAllBookings, confirmBooking } from '@/services/bookings';
 import { Booking } from '@/types';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function Bookings() {
+  const { user } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -15,6 +17,12 @@ export default function Bookings() {
   
   // Modal State
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  
+  // Confirmation State
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchBookings() {
@@ -49,6 +57,7 @@ export default function Bookings() {
           ${b.trackingId || ''} 
           ${b.farmerName || ''} 
           ${b.farmerId || ''} 
+          ${b.phoneNumber || ''} 
           ${b.centreName || ''}
         `.toLowerCase();
         
@@ -58,6 +67,44 @@ export default function Bookings() {
       return true;
     });
   }, [bookings, searchTerm, statusFilter]);
+
+  const handleConfirmBooking = async () => {
+    if (!selectedBooking || !user) return;
+    
+    setConfirmError(null);
+    setIsConfirming(true);
+    
+    try {
+      await confirmBooking(selectedBooking.id, user.uid);
+      setConfirmSuccess("Booking confirmed successfully.");
+      
+      // Update local state to reflect change immediately
+      setBookings(prev => prev.map(b => 
+        b.id === selectedBooking.id ? { ...b, status: 'CONFIRMED' } : b
+      ));
+      setSelectedBooking(prev => prev ? { ...prev, status: 'CONFIRMED' } : null);
+      
+      // Close dialog after brief success message
+      setTimeout(() => {
+        setShowConfirmDialog(false);
+        setConfirmSuccess(null);
+      }, 2000);
+      
+    } catch (err: any) {
+      if (err.message === 'ALREADY_CONFIRMED') {
+        setConfirmError("This booking has already been confirmed.");
+        // Correct the local state silently
+        setBookings(prev => prev.map(b => b.id === selectedBooking.id ? { ...b, status: 'CONFIRMED' } : b));
+        setSelectedBooking(prev => prev ? { ...prev, status: 'CONFIRMED' } : null);
+      } else if (err.code === 'permission-denied') {
+        setConfirmError("Permission denied. You do not have access to modify bookings.");
+      } else {
+        setConfirmError("Unable to confirm this booking. Please try again.");
+      }
+    } finally {
+      setIsConfirming(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -182,7 +229,7 @@ export default function Bookings() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
               <h3 className="text-lg font-semibold text-gray-900">Booking Details</h3>
               <button 
-                onClick={() => setSelectedBooking(null)}
+                onClick={() => { setSelectedBooking(null); setShowConfirmDialog(false); setConfirmError(null); setConfirmSuccess(null); }}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -236,13 +283,69 @@ export default function Bookings() {
                 </div>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center relative">
+              <div>
+                {(selectedBooking.status || '').toUpperCase().trim() === 'BOOKED' && !showConfirmDialog && (
+                  <button 
+                    onClick={() => setShowConfirmDialog(true)}
+                    className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors shadow-sm"
+                  >
+                    Confirm Booking
+                  </button>
+                )}
+                {(selectedBooking.status || '').toUpperCase().trim() === 'CONFIRMED' && (
+                  <span className="flex items-center text-green-700 font-medium text-sm">
+                    <CheckCircle2 className="w-5 h-5 mr-2" /> Booking Confirmed
+                  </span>
+                )}
+              </div>
               <button 
-                onClick={() => setSelectedBooking(null)}
+                onClick={() => { setSelectedBooking(null); setShowConfirmDialog(false); setConfirmError(null); setConfirmSuccess(null); }}
                 className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Close
               </button>
+              
+              {/* Inline Confirmation Dialog */}
+              {showConfirmDialog && (
+                <div className="absolute inset-x-0 bottom-full mb-2 mx-4 bg-white border border-gray-200 shadow-lg rounded-xl p-5 z-20">
+                  <h4 className="text-base font-semibold text-gray-900 mb-1">Confirm this booking?</h4>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Confirming this booking will notify the farmer that their slot has been officially confirmed.
+                  </p>
+                  
+                  {confirmError && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-700 text-sm rounded-lg flex items-start">
+                      <AlertCircle className="w-4 h-4 mr-2 mt-0.5 shrink-0" />
+                      <p>{confirmError}</p>
+                    </div>
+                  )}
+                  {confirmSuccess && (
+                    <div className="mb-4 p-3 bg-green-50 border border-green-100 text-green-700 text-sm rounded-lg flex items-start">
+                      <CheckCircle2 className="w-4 h-4 mr-2 mt-0.5 shrink-0" />
+                      <p>{confirmSuccess}</p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-3">
+                    <button 
+                      onClick={() => { setShowConfirmDialog(false); setConfirmError(null); }}
+                      disabled={isConfirming || !!confirmSuccess}
+                      className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleConfirmBooking}
+                      disabled={isConfirming || !!confirmSuccess}
+                      className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center shadow-sm"
+                    >
+                      {isConfirming && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                      {isConfirming ? 'Confirming...' : 'Confirm Booking'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
