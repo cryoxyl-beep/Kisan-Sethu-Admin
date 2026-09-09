@@ -30,18 +30,11 @@ export default function CheckIn() {
   const [checkInError, setCheckInError] = useState<string | null>(null);
   const [checkInSuccess, setCheckInSuccess] = useState<string | null>(null);
 
-  // Stop scanning when unmounting or switching modes
   useEffect(() => {
     return () => {
       stopScanner();
     };
   }, []);
-
-  useEffect(() => {
-    if (mode === 'manual') {
-      stopScanner();
-    }
-  }, [mode]);
 
   const startScanner = async () => {
     setCameraError(null);
@@ -52,6 +45,10 @@ export default function CheckIn() {
         html5QrCodeRef.current = new Html5Qrcode("qr-reader");
       }
       
+      // Update UI first so the #qr-reader div becomes visible (display block)
+      // before html5-qrcode tries to inject video elements and calculate dimensions.
+      setIsScanning(true);
+      
       await html5QrCodeRef.current.start(
         { facingMode: "environment" },
         {
@@ -59,14 +56,15 @@ export default function CheckIn() {
           qrbox: { width: 250, height: 250 },
         },
         (decodedText) => {
-          stopScanner();
-          handleQrScanResult(decodedText);
+          // Stop scanner immediately on success, then process
+          stopScanner().then(() => {
+            handleQrScanResult(decodedText);
+          });
         },
         (errorMessage) => {
           // parse errors are normal while looking for a code, ignore them
         }
       );
-      setIsScanning(true);
     } catch (err: any) {
       console.error("Camera start error:", err);
       setIsScanning(false);
@@ -78,11 +76,23 @@ export default function CheckIn() {
     if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
       try {
         await html5QrCodeRef.current.stop();
-        setIsScanning(false);
       } catch (err) {
         console.error("Failed to stop scanner:", err);
       }
+      try {
+        html5QrCodeRef.current.clear();
+      } catch (err) {
+        console.error("Failed to clear scanner:", err);
+      }
     }
+    setIsScanning(false);
+  };
+
+  const handleModeSwitch = async (newMode: 'scan' | 'manual') => {
+    if (newMode === 'manual' && isScanning) {
+      await stopScanner();
+    }
+    setMode(newMode);
   };
 
   const parseQrData = (data: string): string | null => {
@@ -217,7 +227,7 @@ export default function CheckIn() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="flex border-b border-gray-100">
             <button
-              onClick={() => setMode('scan')}
+              onClick={() => handleModeSwitch('scan')}
               className={cn(
                 "flex-1 py-4 px-6 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors",
                 mode === 'scan' ? "border-green-600 text-green-700 bg-green-50/30" : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
@@ -227,7 +237,7 @@ export default function CheckIn() {
               Scan QR Code
             </button>
             <button
-              onClick={() => setMode('manual')}
+              onClick={() => handleModeSwitch('manual')}
               className={cn(
                 "flex-1 py-4 px-6 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors",
                 mode === 'manual' ? "border-green-600 text-green-700 bg-green-50/30" : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
@@ -239,89 +249,93 @@ export default function CheckIn() {
           </div>
 
           <div className="p-6">
-            {mode === 'scan' ? (
-              <div className="flex flex-col items-center">
+            {/* SCAN MODE */}
+            <div className={cn("flex flex-col items-center", mode !== 'scan' && "hidden")}>
+              <div className="w-full max-w-sm relative">
+                {/* Dedicated stable DOM container for html5-qrcode. React must NEVER render children inside this. */}
                 <div 
                   id="qr-reader" 
                   className={cn(
-                    "w-full max-w-sm bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl overflow-hidden relative",
-                    isScanning ? "" : "aspect-square flex flex-col items-center justify-center p-8"
+                    "w-full bg-black border-2 border-dashed border-gray-200 rounded-xl overflow-hidden",
+                    !isScanning && "hidden"
                   )}
-                >
-                  {!isScanning && (
-                    <>
-                      <Camera className="w-12 h-12 text-gray-300 mb-4" />
-                      <p className="text-sm text-gray-500 text-center mb-6">
-                        Place the farmer's QR code inside the frame to verify their booking.
-                      </p>
-                      <button
-                        onClick={startScanner}
-                        className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center shadow-sm"
-                      >
-                        <Camera className="w-4 h-4 mr-2" />
-                        Start Camera
-                      </button>
-                    </>
-                  )}
-                </div>
+                ></div>
                 
-                {isScanning && (
-                  <div className="mt-6 flex flex-col items-center">
-                    <p className="text-sm text-gray-600 mb-4 flex items-center">
-                      <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse mr-2"></span>
-                      Scanning for QR code...
+                {/* React overlays (only shown when not scanning) */}
+                {!isScanning && (
+                  <div className="w-full aspect-square bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center p-8">
+                    <Camera className="w-12 h-12 text-gray-300 mb-4" />
+                    <p className="text-sm text-gray-500 text-center mb-6">
+                      Place the farmer's QR code inside the frame to verify their booking.
                     </p>
                     <button
-                      onClick={stopScanner}
-                      className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors flex items-center"
+                      onClick={startScanner}
+                      className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center shadow-sm"
                     >
-                      <CameraOff className="w-4 h-4 mr-2" />
-                      Stop Camera
+                      <Camera className="w-4 h-4 mr-2" />
+                      Start Camera
                     </button>
                   </div>
                 )}
-                
-                {cameraError && (
-                  <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-lg flex items-start text-red-700 text-sm max-w-sm w-full">
-                    <AlertCircle className="w-5 h-5 mr-2 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-medium mb-1">Camera access denied</p>
-                      <p>{cameraError}</p>
-                    </div>
-                  </div>
-                )}
               </div>
-            ) : (
-              <div className="max-w-md mx-auto py-8">
-                <form onSubmit={handleManualSubmit} className="space-y-4">
-                  <div>
-                    <label htmlFor="trackingId" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Tracking ID or Booking ID
-                    </label>
-                    <input
-                      id="trackingId"
-                      type="text"
-                      value={manualId}
-                      onChange={(e) => setManualId(e.target.value)}
-                      placeholder="e.g. KS268SX58H"
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-colors"
-                      required
-                    />
-                  </div>
+              
+              {isScanning && (
+                <div className="mt-6 flex flex-col items-center">
+                  <p className="text-sm text-gray-600 mb-4 flex items-center">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse mr-2"></span>
+                    Scanning for QR code...
+                  </p>
                   <button
-                    type="submit"
-                    disabled={isVerifying || !manualId.trim()}
-                    className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
+                    onClick={stopScanner}
+                    className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors flex items-center"
                   >
-                    {isVerifying ? (
-                      <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Verifying...</>
-                    ) : (
-                      <><Search className="w-5 h-5 mr-2" /> Verify Booking</>
-                    )}
+                    <CameraOff className="w-4 h-4 mr-2" />
+                    Stop Camera
                   </button>
-                </form>
-              </div>
-            )}
+                </div>
+              )}
+              
+              {cameraError && (
+                <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-lg flex items-start text-red-700 text-sm max-w-sm w-full">
+                  <AlertCircle className="w-5 h-5 mr-2 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium mb-1">Camera access denied</p>
+                    <p>{cameraError}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* MANUAL MODE */}
+            <div className={cn("max-w-md mx-auto py-8", mode !== 'manual' && "hidden")}>
+              <form onSubmit={handleManualSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="trackingId" className="block text-sm font-medium text-gray-700 mb-1.5">
+                    Tracking ID or Booking ID
+                  </label>
+                  <input
+                    id="trackingId"
+                    type="text"
+                    value={manualId}
+                    onChange={(e) => setManualId(e.target.value)}
+                    placeholder="e.g. KS268SX58H"
+                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-colors"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isVerifying || !manualId.trim()}
+                  className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
+                >
+                  {isVerifying ? (
+                    <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Verifying...</>
+                  ) : (
+                    <><Search className="w-5 h-5 mr-2" /> Verify Booking</>
+                  )}
+                </button>
+              </form>
+            </div>
             
             {/* Status Messages */}
             {lookupError && (
