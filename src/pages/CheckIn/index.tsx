@@ -29,6 +29,7 @@ export default function CheckIn() {
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [checkInError, setCheckInError] = useState<string | null>(null);
   const [checkInSuccess, setCheckInSuccess] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -196,6 +197,26 @@ export default function CheckIn() {
       
       // Update local booking state immediately
       setBooking(prev => prev ? { ...prev, status: 'CHECKED_IN' } : null);
+      
+      // Trigger serverless FCM notification asynchronously
+      if (booking.farmerId) {
+        fetch('/api/send-queue-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId: booking.farmerId,
+            title: "Checked In",
+            body: `You have been checked in at ${booking.centreName || 'the centre'}. Please wait for your turn to be called.`
+          })
+        }).then(res => {
+          if (!res.ok) throw new Error('Failed to send notification');
+        }).catch(err => {
+          console.error("Notification trigger failed:", err);
+          setNotificationError("Notification failed to send to farmer — they may not be alerted.");
+          setTimeout(() => setNotificationError(null), 5000);
+        });
+      }
+
       setShowConfirmDialog(false);
     } catch (err: any) {
       console.error("Check-in error:", err);
@@ -217,7 +238,17 @@ export default function CheckIn() {
   const currentStatus = (booking?.status || '').toUpperCase().trim();
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6 relative">
+      {notificationError && (
+        <div className="fixed bottom-4 right-4 z-50 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4">
+          <AlertCircle className="w-5 h-5 text-red-400" />
+          <span className="text-sm font-medium">{notificationError}</span>
+          <button onClick={() => setNotificationError(null)} className="text-gray-400 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Check In Farmer</h1>
       </div>

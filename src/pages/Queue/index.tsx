@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Users, Loader2, AlertCircle, Clock, CheckCircle2, User, PlayCircle, ArrowRight, Settings } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Clock, CheckCircle2, User, PlayCircle, ArrowRight, Settings, X } from 'lucide-react';
 import { cn, formatDateToIST } from '@/lib/utils';
 import { subscribeToTodayQueue, startNextFarmer, startProcessing } from '@/services/queue';
 import { QueueEntry } from '@/types';
@@ -11,6 +11,7 @@ export default function Queue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   // Derive center ID directly from admin profile
   const centreId = adminProfile?.centreId;
@@ -91,7 +92,13 @@ export default function Queue() {
             title: "Your turn is now",
             body: `Token ${nextInLine.tokenLabel || nextInLine.tokenNumber} is now being served. Please proceed to the procurement counter.`
           })
-        }).catch(err => console.error("Notification trigger failed:", err));
+        }).then(res => {
+          if (!res.ok) throw new Error('Failed to send notification');
+        }).catch(err => {
+          console.error("Notification trigger failed:", err);
+          setNotificationError("Notification failed to send to farmer — they may not be alerted.");
+          setTimeout(() => setNotificationError(null), 5000);
+        });
       }
     } catch (err: any) {
       console.error("Error starting next farmer:", err);
@@ -119,7 +126,13 @@ export default function Queue() {
             title: "Procurement started",
             body: "Your procurement process has started."
           })
-        }).catch(err => console.error("Notification trigger failed:", err));
+        }).then(res => {
+          if (!res.ok) throw new Error('Failed to send notification');
+        }).catch(err => {
+          console.error("Notification trigger failed:", err);
+          setNotificationError("Notification failed to send to farmer — they may not be alerted.");
+          setTimeout(() => setNotificationError(null), 5000);
+        });
       }
     } catch (err: any) {
       console.error("Error starting processing:", err);
@@ -148,7 +161,17 @@ export default function Queue() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto relative">
+      {notificationError && (
+        <div className="fixed bottom-4 right-4 z-50 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4">
+          <AlertCircle className="w-5 h-5 text-red-400" />
+          <span className="text-sm font-medium">{notificationError}</span>
+          <button onClick={() => setNotificationError(null)} className="text-gray-400 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Queue Control</h1>
         <div className="px-4 py-2 bg-white rounded-lg border border-gray-200 text-sm font-medium text-gray-600 flex items-center">

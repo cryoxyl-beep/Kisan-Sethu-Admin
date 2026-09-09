@@ -23,6 +23,7 @@ export default function Bookings() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchBookings() {
@@ -85,6 +86,25 @@ export default function Bookings() {
       ));
       setSelectedBooking(prev => prev ? { ...prev, status: 'CONFIRMED' } : null);
       
+      // Trigger serverless FCM notification asynchronously
+      if (selectedBooking.farmerId) {
+        fetch('/api/send-queue-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId: selectedBooking.farmerId,
+            title: "Booking Confirmed",
+            body: `Your procurement slot at ${selectedBooking.centreName || 'the centre'} on ${formatDateToIST(selectedBooking.bookingDate || selectedBooking.createdAt)} at ${selectedBooking.slotStartTime || ''} has been confirmed.`
+          })
+        }).then(res => {
+          if (!res.ok) throw new Error('Failed to send notification');
+        }).catch(err => {
+          console.error("Notification trigger failed:", err);
+          setNotificationError("Notification failed to send to farmer — they may not be alerted.");
+          setTimeout(() => setNotificationError(null), 5000);
+        });
+      }
+
       // Close dialog after brief success message
       setTimeout(() => {
         setShowConfirmDialog(false);
@@ -132,7 +152,17 @@ export default function Bookings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+      {notificationError && (
+        <div className="fixed bottom-4 right-4 z-50 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4">
+          <AlertCircle className="w-5 h-5 text-red-400" />
+          <span className="text-sm font-medium">{notificationError}</span>
+          <button onClick={() => setNotificationError(null)} className="text-gray-400 hover:text-white transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header and Controls */}
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Bookings Management</h1>
