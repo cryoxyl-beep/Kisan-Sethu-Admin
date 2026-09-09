@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Users, Loader2, AlertCircle, Clock, CheckCircle2, User, PlayCircle, ArrowRight, Settings, X } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Clock, CheckCircle2, User, PlayCircle, ArrowRight, Settings, X, Plus } from 'lucide-react';
 import { cn, formatDateToIST } from '@/lib/utils';
-import { subscribeToTodayQueue, startNextFarmer, startProcessing } from '@/services/queue';
+import { subscribeToTodayQueue, startNextFarmer, startProcessing, addToQueue, completeProcessing } from '@/services/queue';
 import { QueueEntry } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -41,7 +41,15 @@ export default function Queue() {
     return () => unsubscribe();
   }, [centreId]);
 
-  const { waiting, serving, processing } = useMemo(() => {
+  const { checkedIn, waiting, serving, processing } = useMemo(() => {
+    const checkedIn = entries
+      .filter(e => e.status === 'CHECKED_IN')
+      .sort((a, b) => {
+        const timeA = (a.checkInTime as any)?.toMillis?.() || new Date(a.checkInTime as string).getTime();
+        const timeB = (b.checkInTime as any)?.toMillis?.() || new Date(b.checkInTime as string).getTime();
+        return timeA - timeB;
+      });
+
     const waiting = entries
       .filter(e => e.status === 'WAITING')
       .sort((a, b) => {
@@ -66,10 +74,24 @@ export default function Queue() {
         return timeB - timeA;
       });
 
-    return { waiting, serving, processing };
+    return { checkedIn, waiting, serving, processing };
   }, [entries]);
 
   const [isActionLoading, setIsActionLoading] = useState(false);
+
+  const handleAddToQueue = async (queueEntryId: string) => {
+    setActionError(null);
+    setIsActionLoading(true);
+    
+    try {
+      await addToQueue(queueEntryId);
+    } catch (err: any) {
+      console.error("Error adding to queue:", err);
+      setActionError(err.message || "Failed to add farmer to queue.");
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
 
   const handleCallNext = async () => {
     if (waiting.length === 0) return;
@@ -142,6 +164,20 @@ export default function Queue() {
     }
   };
 
+  const handleCompleteProcessing = async (queueEntryId: string) => {
+    setActionError(null);
+    setIsActionLoading(true);
+    
+    try {
+      await completeProcessing(queueEntryId);
+    } catch (err: any) {
+      console.error("Error completing processing:", err);
+      setActionError(err.message || "Failed to complete processing.");
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px]">
@@ -182,8 +218,52 @@ export default function Queue() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* WAITING LIST */}
+        {/* CHECKED IN / PENDING QUEUE */}
         <div className="lg:col-span-2 space-y-4">
+          {checkedIn.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-blue-100 overflow-hidden flex flex-col mb-6">
+              <div className="p-5 border-b border-blue-50 flex items-center justify-between bg-blue-50/50">
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <User className="w-5 h-5 text-blue-500" /> Pending Queue (Checked In)
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200">
+                  {checkedIn.length} pending
+                </span>
+              </div>
+              <div className="p-0">
+                <ul className="divide-y divide-gray-100">
+                  {checkedIn.map((entry) => (
+                    <li key={entry.id} className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-700 font-bold tracking-tight">
+                          {entry.tokenLabel.split('-')[1] || entry.tokenNumber}
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{entry.farmerName || 'Unknown Farmer'}</p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                            <span className="font-mono text-gray-400">{entry.tokenLabel}</span>
+                            <span>•</span>
+                            <span>ID: {entry.trackingId}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center">
+                        <button
+                          onClick={() => handleAddToQueue(entry.id!)}
+                          disabled={isActionLoading}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center shadow-sm"
+                        >
+                          <Plus className="w-4 h-4 mr-1" />
+                          Add to Queue
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
             <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -300,11 +380,11 @@ export default function Queue() {
                       <p className="font-medium text-gray-900">{entry.farmerName}</p>
                       
                       <button 
-                        disabled
-                        className="w-full mt-4 px-4 py-2 bg-gray-200 text-gray-500 font-medium rounded-lg cursor-not-allowed flex items-center justify-center shadow-sm"
-                        title="Payment implementation coming in future phase"
+                        onClick={() => handleCompleteProcessing(entry.id!)}
+                        disabled={isActionLoading}
+                        className="w-full mt-4 px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 font-medium rounded-lg transition-colors flex items-center justify-center shadow-sm disabled:opacity-50"
                       >
-                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        {isActionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                         Complete Procurement
                       </button>
                     </div>

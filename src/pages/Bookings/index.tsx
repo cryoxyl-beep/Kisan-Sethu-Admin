@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Loader2, AlertCircle, Search, Filter, X, CheckCircle2 } from 'lucide-react';
 import { cn, formatDateToIST } from '@/lib/utils';
-import { getAllBookings, confirmBooking } from '@/services/bookings';
+import { subscribeToBookings, confirmBooking } from '@/services/bookings';
 import { Booking } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -26,32 +26,35 @@ export default function Bookings() {
   const [notificationError, setNotificationError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchBookings() {
-      try {
-        const data = await getAllBookings();
+    setLoading(true);
+    const unsubscribe = subscribeToBookings(
+      statusFilter,
+      (data) => {
         setBookings(data);
-      } catch (err) {
+        
+        // Update selected booking if it was modified
+        if (selectedBooking) {
+          const updatedSelected = data.find(b => b.id === selectedBooking.id);
+          if (updatedSelected) {
+            setSelectedBooking(updatedSelected);
+          }
+        }
+        
+        setLoading(false);
+        setError(null);
+      },
+      (err) => {
         console.error("Error fetching bookings:", err);
         setError("Unable to load bookings. Please check your network connection and permissions.");
-      } finally {
         setLoading(false);
       }
-    }
-    fetchBookings();
-  }, []);
+    );
+    
+    return () => unsubscribe();
+  }, [statusFilter]); // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
-      // Status Filter
-      if (statusFilter !== 'ALL') {
-        const bStatus = (b.status || '').toUpperCase();
-        if (statusFilter === 'ACTIVE' && !['BOOKED', 'ACTIVE'].includes(bStatus)) return false;
-        if (statusFilter === 'CONFIRMED' && bStatus !== 'CONFIRMED') return false;
-        if (statusFilter === 'COMPLETED' && bStatus !== 'COMPLETED') return false;
-        if (statusFilter === 'PENDING' && bStatus !== 'PENDING') return false;
-        if (statusFilter === 'CANCELLED' && bStatus !== 'CANCELLED') return false;
-      }
-      
       // Search Term
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
@@ -68,7 +71,7 @@ export default function Bookings() {
       
       return true;
     });
-  }, [bookings, searchTerm, statusFilter]);
+  }, [bookings, searchTerm]);
 
   const handleConfirmBooking = async () => {
     if (!selectedBooking || !user) return;
@@ -186,11 +189,13 @@ export default function Bookings() {
               className="pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-green-500 focus:border-green-500 appearance-none bg-white w-full sm:w-auto outline-none cursor-pointer"
             >
               <option value="ALL">All Status</option>
-              <option value="ACTIVE">Active/Booked</option>
+              <option value="BOOKED">Booked</option>
               <option value="CONFIRMED">Confirmed</option>
+              <option value="CHECKED_IN">Checked In</option>
+              <option value="WAITING">Waiting</option>
+              <option value="NOW_SERVING">Now Serving</option>
+              <option value="PROCESSING">Processing</option>
               <option value="COMPLETED">Completed</option>
-              <option value="PENDING">Pending</option>
-              <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
         </div>

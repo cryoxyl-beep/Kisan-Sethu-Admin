@@ -2,11 +2,51 @@ import { collection, query, where, orderBy, getDocs, limit, onSnapshot, doc, run
 import { db } from '@/lib/firebase';
 import { QueueEntry } from '@/types';
 
+/**
+ * SYNCHRONIZATION RULE:
+ * Both `bookings` and `queueEntries` collections represent the status of a farmer.
+ * To maintain the single source of truth and ensure real-time synchronization with the Farmer App:
+ * Every state transition in the queue (WAITING -> NOW_SERVING -> PROCESSING -> COMPLETED)
+ * MUST be executed as a Firestore Transaction that atomically updates the `status` 
+ * and timestamp fields on BOTH the `queueEntries` document AND the corresponding `bookings` document.
+ * This guarantees `bookings.status` and `queueEntries.status` will never drift apart.
+ */
+
+// State Transition: CHECKED_IN -> WAITING
+export async function addToQueue(queueEntryId: string): Promise<void> {
+  const entryRef = doc(db, 'queueEntries', queueEntryId);
+  const bookingRef = doc(db, 'bookings', queueEntryId);
+  
+  await runTransaction(db, async (transaction) => {
+    const entryDoc = await transaction.get(entryRef);
+    if (!entryDoc.exists()) {
+      throw new Error("Queue entry not found.");
+    }
+    
+    if (entryDoc.data().status !== 'CHECKED_IN') {
+      throw new Error("Farmer must be CHECKED_IN to be added to the queue.");
+    }
+    
+    transaction.update(entryRef, {
+      status: 'WAITING',
+      updatedAt: serverTimestamp(),
+      waitingAt: serverTimestamp(),
+      queueJoinedAt: serverTimestamp() // Set this here so they queue in correct order
+    });
+
+    transaction.update(bookingRef, {
+      status: 'WAITING',
+      updatedAt: serverTimestamp()
+    });
+  });
+}
+
 // State Transition: WAITING -> NOW_SERVING
 // Ensures only ONE farmer is NOW_SERVING at a time by using the daily counter document as a transaction lock
 export async function startNextFarmer(centreId: string, dateStr: string, nextFarmerId: string): Promise<void> {
   const counterRef = doc(db, 'queueCounters', `${centreId}_${dateStr}`);
   const nextFarmerRef = doc(db, 'queueEntries', nextFarmerId);
+  const bookingRef = doc(db, 'bookings', nextFarmerId);
 
   await runTransaction(db, async (transaction) => {
     // 1. Read the counter to check the active lock
@@ -42,6 +82,11 @@ export async function startNextFarmer(centreId: string, dateStr: string, nextFar
       startedServingAt: serverTimestamp()
     });
 
+    transaction.update(bookingRef, {
+      status: 'NOW_SERVING',
+      updatedAt: serverTimestamp()
+    });
+
     // 5. Update the lock
     transaction.update(counterRef, {
       activeServingId: nextFarmerId,
@@ -53,6 +98,7 @@ export async function startNextFarmer(centreId: string, dateStr: string, nextFar
 // State Transition: NOW_SERVING -> PROCESSING
 export async function startProcessing(queueEntryId: string): Promise<void> {
   const entryRef = doc(db, 'queueEntries', queueEntryId);
+  const bookingRef = doc(db, 'bookings', queueEntryId);
   
   await runTransaction(db, async (transaction) => {
     const entryDoc = await transaction.get(entryRef);
@@ -68,6 +114,40 @@ export async function startProcessing(queueEntryId: string): Promise<void> {
       status: 'PROCESSING',
       updatedAt: serverTimestamp(),
       processingStartedAt: serverTimestamp()
+    });
+
+    transaction.update(bookingRef, {
+      status: 'PROCESSING',
+      updatedAt: serverTimestamp()
+    });
+  });
+}
+
+// State Transition: PROCESSING -> COMPLETED
+export async function completeProcessing(queueEntryId: string): Promise<void> {
+  const entryRef = doc(db, 'queueEntries', queueEntryId);
+  const bookingRef = doc(db, 'bookings', queueEntryId);
+  
+  await runTransaction(db, async (transaction) => {
+    const entryDoc = await transaction.get(entryRef);
+    if (!entryDoc.exists()) {
+      throw new Error("Queue entry not found.");
+    }
+    
+    if (entryDoc.data().status !== 'PROCESSING') {
+      throw new Error("Farmer must be PROCESSING to complete procurement.");
+    }
+    
+    transaction.update(entryRef, {
+      status: 'COMPLETED',
+      updatedAt: serverTimestamp(),
+      completedAt: serverTimestamp()
+    });
+
+    transaction.update(bookingRef, {
+      status: 'COMPLETED',
+      updatedAt: serverTimestamp(),
+      completedAt: serverTimestamp()
     });
   });
 }

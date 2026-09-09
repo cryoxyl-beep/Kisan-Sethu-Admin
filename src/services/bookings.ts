@@ -82,10 +82,9 @@ export async function checkInBooking(bookingId: string, adminUid: string): Promi
       centreName: centreName,
       tokenNumber: newTokenNumber,
       tokenLabel: tokenLabel,
-      status: 'WAITING',
+      status: 'CHECKED_IN',
       queueDate: dateStr,
       checkInTime: serverTimestamp(),
-      queueJoinedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -159,6 +158,47 @@ export function subscribeToRecentBookings(
     if (error.message.includes('index')) {
       console.warn('Missing index for createdAt. Falling back to unordered query.');
       const fallbackQ = query(collection(db, 'bookings'), limit(200));
+      onSnapshot(fallbackQ, (fallbackSnap) => {
+         const fallbackBookings = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+         callback(fallbackBookings);
+      }, onError);
+    } else {
+      onError(error);
+    }
+  });
+}
+
+export function subscribeToBookings(
+  statusFilter: string,
+  callback: (bookings: Booking[]) => void,
+  onError: (error: Error) => void
+) {
+  let q;
+  if (statusFilter && statusFilter !== 'ALL') {
+    q = query(
+      collection(db, 'bookings'),
+      where('status', '==', statusFilter),
+      orderBy('createdAt', 'desc'),
+      limit(500)
+    );
+  } else {
+    q = query(
+      collection(db, 'bookings'),
+      orderBy('createdAt', 'desc'),
+      limit(200)
+    );
+  }
+
+  return onSnapshot(q, (snapshot) => {
+    const bookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+    callback(bookings);
+  }, (error) => {
+    if (error.message.includes('index')) {
+      console.warn('Missing index for status/createdAt. Falling back to unordered query.');
+      const fallbackQ = statusFilter !== 'ALL' 
+        ? query(collection(db, 'bookings'), where('status', '==', statusFilter), limit(500))
+        : query(collection(db, 'bookings'), limit(200));
+        
       onSnapshot(fallbackQ, (fallbackSnap) => {
          const fallbackBookings = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
          callback(fallbackBookings);
