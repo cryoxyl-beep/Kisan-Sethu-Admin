@@ -1,30 +1,33 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Users, Loader2, AlertCircle, Clock, CheckCircle2, User, PlayCircle, ArrowRight } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Clock, CheckCircle2, User, PlayCircle, ArrowRight, Settings } from 'lucide-react';
 import { cn, formatDateToIST } from '@/lib/utils';
-import { subscribeToTodayQueue } from '@/services/queue';
-import { doc, updateServerTimestamp, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { subscribeToTodayQueue, startNextFarmer, startProcessing } from '@/services/queue';
 import { QueueEntry } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function Queue() {
-  const { user, adminProfile } = useAuth();
+  const { adminProfile } = useAuth();
   const [entries, setEntries] = useState<QueueEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Derive center ID directly from admin profile
   const centreId = adminProfile?.centreId;
+
+  // We need the date string to query and lock the queue
+  const [dateStr, setDateStr] = useState('');
 
   useEffect(() => {
     // Get current date in IST for queueDate (YYYY-MM-DD)
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istDate = new Date(now.getTime() + istOffset);
-    const dateStr = istDate.toISOString().split('T')[0];
+    const todayStr = istDate.toISOString().split('T')[0];
+    setDateStr(todayStr);
 
     setLoading(true);
-    const unsubscribe = subscribeToTodayQueue(centreId, dateStr, (data) => {
+    const unsubscribe = subscribeToTodayQueue(centreId, todayStr, (data) => {
       setEntries(data);
       setLoading(false);
       setError(null);
@@ -37,7 +40,7 @@ export default function Queue() {
     return () => unsubscribe();
   }, [centreId]);
 
-  const { waiting, serving, completed } = useMemo(() => {
+  const { waiting, serving, processing } = useMemo(() => {
     const waiting = entries
       .filter(e => e.status === 'WAITING')
       .sort((a, b) => {
@@ -47,39 +50,82 @@ export default function Queue() {
       });
       
     const serving = entries
-      .filter(e => ['NOW_SERVING', 'PROCESSING'].includes(e.status))
+      .filter(e => e.status === 'NOW_SERVING')
       .sort((a, b) => {
         const timeA = (a.updatedAt as any)?.toMillis?.() || new Date(a.updatedAt as string).getTime();
         const timeB = (b.updatedAt as any)?.toMillis?.() || new Date(b.updatedAt as string).getTime();
         return timeB - timeA; // Most recently updated first
       });
 
-    const completed = entries
-      .filter(e => ['COMPLETED'].includes(e.status))
+    const processing = entries
+      .filter(e => e.status === 'PROCESSING')
       .sort((a, b) => {
         const timeA = (a.updatedAt as any)?.toMillis?.() || new Date(a.updatedAt as string).getTime();
         const timeB = (b.updatedAt as any)?.toMillis?.() || new Date(b.updatedAt as string).getTime();
         return timeB - timeA;
       });
 
-    return { waiting, serving, completed };
+    return { waiting, serving, processing };
   }, [entries]);
+
+  const [isActionLoading, setIsActionLoading] = useState(false);
 
   const handleCallNext = async () => {
     if (waiting.length === 0) return;
     const nextInLine = waiting[0];
+    if (!nextInLine.id || !nextInLine.centreId) return;
     
-    if (!nextInLine.id) return;
+    setActionError(null);
+    setIsActionLoading(true);
     
     try {
-      const entryRef = doc(db, 'queueEntries', nextInLine.id);
-      await updateDoc(entryRef, {
-        status: 'NOW_SERVING',
-        updatedAt: serverTimestamp()
-      });
-    } catch (err) {
-      console.error("Error updating queue status:", err);
-      alert("Failed to call next farmer.");
+      await startNextFarmer(nextInLine.centreId, dateStr, nextInLine.id);
+
+      // Trigger serverless FCM notification asynchronously
+      if (nextInLine.farmerId) {
+        fetch('/api/send-queue-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId: nextInLine.farmerId,
+            title: "Your turn is now",
+            body: `Token ${nextInLine.tokenLabel || nextInLine.tokenNumber} is now being served. Please proceed to the procurement counter.`
+          })
+        }).catch(err => console.error("Notification trigger failed:", err));
+      }
+    } catch (err: any) {
+      console.error("Error starting next farmer:", err);
+      setActionError(err.message || "Failed to start next farmer.");
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleStartProcessing = async (queueEntryId: string) => {
+    setActionError(null);
+    setIsActionLoading(true);
+    
+    try {
+      await startProcessing(queueEntryId);
+
+      // Trigger serverless FCM notification asynchronously
+      const entry = serving.find(e => e.id === queueEntryId);
+      if (entry?.farmerId) {
+        fetch('/api/send-queue-notification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            farmerId: entry.farmerId,
+            title: "Procurement started",
+            body: "Your procurement process has started."
+          })
+        }).catch(err => console.error("Notification trigger failed:", err));
+      }
+    } catch (err: any) {
+      console.error("Error starting processing:", err);
+      setActionError(err.message || "Failed to start processing.");
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
@@ -176,51 +222,75 @@ export default function Queue() {
                       <p className="text-xs font-medium text-green-600 uppercase tracking-wide mb-1">Token</p>
                       <h3 className="text-4xl font-bold text-green-700 tracking-tight mb-2">{entry.tokenLabel}</h3>
                       <p className="font-medium text-gray-900">{entry.farmerName}</p>
+                      
+                      <button 
+                        onClick={() => handleStartProcessing(entry.id!)}
+                        disabled={isActionLoading}
+                        className="w-full mt-4 px-4 py-2 bg-white border border-green-300 text-green-700 hover:bg-green-100 font-medium rounded-lg transition-colors flex items-center justify-center shadow-sm disabled:opacity-50"
+                      >
+                        {isActionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings className="w-4 h-4 mr-2" />}
+                        Start Processing
+                      </button>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center p-6 border-2 border-dashed border-gray-100 rounded-lg text-gray-400">
-                  None active
+                  Queue is empty or waiting
+                </div>
+              )}
+              
+              {actionError && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-100 text-red-600 text-sm rounded-lg flex items-start">
+                   <AlertCircle className="w-4 h-4 mr-2 shrink-0 mt-0.5" />
+                   {actionError}
                 </div>
               )}
               
               <button 
                 onClick={handleCallNext}
-                disabled={waiting.length === 0}
-                className="w-full mt-6 px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center shadow-sm"
+                disabled={waiting.length === 0 || serving.length > 0 || isActionLoading}
+                className="w-full mt-4 px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center shadow-sm"
               >
-                Call Next Token <ArrowRight className="w-4 h-4 ml-2" />
+                {isActionLoading ? (
+                  <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Starting...</>
+                ) : (
+                  <>Start Next Farmer <ArrowRight className="w-4 h-4 ml-2" /></>
+                )}
               </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-              <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-gray-400" /> Completed Today
+          <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden relative">
+            <div className="absolute top-0 inset-x-0 h-1 bg-orange-500"></div>
+            <div className="p-5">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center">
+                <Settings className="w-4 h-4 mr-2" /> Processing
               </h2>
-              <span className="px-2 py-0.5 rounded text-gray-600 text-xs font-medium bg-white border border-gray-200">
-                {completed.length}
-              </span>
-            </div>
-            <div className="p-0 max-h-48 overflow-y-auto">
-              {completed.length === 0 ? (
-                <div className="p-4 text-center text-xs text-gray-500">
-                  No completions yet.
+              
+              {processing.length > 0 ? (
+                <div className="space-y-4">
+                  {processing.map(entry => (
+                    <div key={entry.id} className="bg-orange-50 border border-orange-100 rounded-lg p-4 text-center">
+                      <p className="text-xs font-medium text-orange-600 uppercase tracking-wide mb-1">Token</p>
+                      <h3 className="text-3xl font-bold text-orange-700 tracking-tight mb-2">{entry.tokenLabel}</h3>
+                      <p className="font-medium text-gray-900">{entry.farmerName}</p>
+                      
+                      <button 
+                        disabled
+                        className="w-full mt-4 px-4 py-2 bg-gray-200 text-gray-500 font-medium rounded-lg cursor-not-allowed flex items-center justify-center shadow-sm"
+                        title="Payment implementation coming in future phase"
+                      >
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Complete Procurement
+                      </button>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <ul className="divide-y divide-gray-50">
-                  {completed.map((entry) => (
-                    <li key={entry.id} className="p-3 hover:bg-gray-50 transition-colors flex items-center justify-between text-sm">
-                       <div className="flex items-center gap-2">
-                         <span className="font-medium text-gray-700">{entry.tokenLabel}</span>
-                         <span className="text-gray-500 truncate max-w-[120px]">{entry.farmerName}</span>
-                       </div>
-                       <CheckCircle2 className="w-4 h-4 text-green-500" />
-                    </li>
-                  ))}
-                </ul>
+                <div className="text-center p-6 border-2 border-dashed border-gray-100 rounded-lg text-gray-400 text-sm">
+                  No farmers currently being processed
+                </div>
               )}
             </div>
           </div>

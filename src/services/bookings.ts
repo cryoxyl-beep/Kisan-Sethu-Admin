@@ -77,6 +77,7 @@ export async function checkInBooking(bookingId: string, adminUid: string): Promi
       bookingId: bookingId,
       trackingId: data.trackingId || '',
       farmerId: data.farmerId || '',
+      farmerName: data.farmerName || 'Unknown Farmer',
       centreId: centreId,
       centreName: centreName,
       tokenNumber: newTokenNumber,
