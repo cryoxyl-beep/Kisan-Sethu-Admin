@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, CalendarDays, Users, CreditCard, Settings, LogOut, Leaf, Menu, X, AlignJustify } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Users, CreditCard, Settings, LogOut, Leaf, Menu, X, AlignJustify, QrCode } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 const navigation = [
   { name: 'Overview', to: '/', icon: LayoutDashboard },
   { name: 'Bookings', to: '/bookings', icon: CalendarDays },
+  { name: 'Check-In', to: '/check-in', icon: QrCode },
   { name: 'Queue', to: '/queue', icon: AlignJustify },
   { name: 'Payments', to: '/payments', icon: CreditCard },
   { name: 'Farmers', to: '/farmers', icon: Users },

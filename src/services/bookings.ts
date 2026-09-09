@@ -1,6 +1,60 @@
-import { collection, query, onSnapshot, getDocs, limit, orderBy, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, getDocs, limit, orderBy, doc, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Booking } from '@/types';
+
+export async function checkInBooking(bookingId: string, adminUid: string): Promise<void> {
+  const bookingRef = doc(db, 'bookings', bookingId);
+  
+  await runTransaction(db, async (transaction) => {
+    const bookingDoc = await transaction.get(bookingRef);
+    if (!bookingDoc.exists()) {
+      throw new Error("Booking does not exist.");
+    }
+    
+    const data = bookingDoc.data();
+    const currentStatus = (data.status || '').toUpperCase().trim();
+    
+    if (currentStatus === 'CHECKED_IN') {
+      throw new Error("ALREADY_CHECKED_IN");
+    }
+    if (currentStatus !== 'CONFIRMED') {
+      throw new Error("NOT_CONFIRMED");
+    }
+    
+    // Partially update the booking
+    transaction.update(bookingRef, {
+      status: 'CHECKED_IN',
+      updatedAt: serverTimestamp(),
+      checkedInAt: serverTimestamp(),
+      checkedInBy: adminUid
+    });
+  });
+}
+
+export async function getBookingByTrackingId(trackingId: string): Promise<Booking | null> {
+  // We check if the trackingId is actually the document ID, or if it matches the trackingId field.
+  const q = query(collection(db, 'bookings'), where('trackingId', '==', trackingId), limit(1));
+  const snapshot = await getDocs(q);
+  
+  if (!snapshot.empty) {
+    const doc = snapshot.docs[0];
+    return { id: doc.id, ...doc.data() } as Booking;
+  }
+  
+  // Fallback: Check if it's actually the document ID
+  const docRef = doc(db, 'bookings', trackingId);
+  try {
+    const docSnap = await getDocs(query(collection(db, 'bookings'), where('__name__', '==', trackingId)));
+    if (!docSnap.empty) {
+      const bDoc = docSnap.docs[0];
+      return { id: bDoc.id, ...bDoc.data() } as Booking;
+    }
+  } catch (e) {
+    // Ignore error
+  }
+  
+  return null;
+}
 
 export async function confirmBooking(bookingId: string, adminUid: string): Promise<void> {
   const bookingRef = doc(db, 'bookings', bookingId);

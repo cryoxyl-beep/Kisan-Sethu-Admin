@@ -120,8 +120,8 @@ export default function Dashboard() {
                   <td className="px-6 py-4">
                     <span className={cn(
                       "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
-                      (booking.status || '').toUpperCase() === 'COMPLETED' ? "bg-green-50 text-green-700 border-green-200" :
-                      ['BOOKED', 'ACTIVE', 'CONFIRMED'].includes((booking.status || '').toUpperCase()) ? "bg-orange-50 text-orange-700 border-orange-200" :
+                      ['COMPLETED', 'CONFIRMED'].includes((booking.status || '').toUpperCase()) ? "bg-green-50 text-green-700 border-green-200" :
+                      ['BOOKED', 'ACTIVE'].includes((booking.status || '').toUpperCase()) ? "bg-orange-50 text-orange-700 border-orange-200" :
                       "bg-gray-50 text-gray-700 border-gray-200"
                     )}>
                       {booking.status || 'UNKNOWN'}

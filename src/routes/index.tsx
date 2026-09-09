@@ -4,6 +4,7 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import Bookings from '@/pages/Bookings';
+import CheckIn from '@/pages/CheckIn';
 import Farmers from '@/pages/Farmers';
 import Placeholder from '@/components/Placeholder';
 
@@ -27,6 +28,10 @@ const router = createBrowserRouter([
       {
         path: 'bookings',
         element: <Bookings />,
+      },
+      {
+        path: 'check-in',
+        element: <CheckIn />,
       },
       {
         path: 'queue',

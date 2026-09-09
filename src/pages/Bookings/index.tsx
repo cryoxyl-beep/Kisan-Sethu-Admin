@@ -44,7 +44,8 @@ export default function Bookings() {
       // Status Filter
       if (statusFilter !== 'ALL') {
         const bStatus = (b.status || '').toUpperCase();
-        if (statusFilter === 'ACTIVE' && !['BOOKED', 'ACTIVE', 'CONFIRMED'].includes(bStatus)) return false;
+        if (statusFilter === 'ACTIVE' && !['BOOKED', 'ACTIVE'].includes(bStatus)) return false;
+        if (statusFilter === 'CONFIRMED' && bStatus !== 'CONFIRMED') return false;
         if (statusFilter === 'COMPLETED' && bStatus !== 'COMPLETED') return false;
         if (statusFilter === 'PENDING' && bStatus !== 'PENDING') return false;
         if (statusFilter === 'CANCELLED' && bStatus !== 'CANCELLED') return false;
@@ -156,6 +157,7 @@ export default function Bookings() {
             >
               <option value="ALL">All Status</option>
               <option value="ACTIVE">Active/Booked</option>
+              <option value="CONFIRMED">Confirmed</option>
               <option value="COMPLETED">Completed</option>
               <option value="PENDING">Pending</option>
               <option value="CANCELLED">Cancelled</option>
@@ -197,8 +199,8 @@ export default function Bookings() {
                   <td className="px-6 py-4">
                     <span className={cn(
                       "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border",
-                      (booking.status || '').toUpperCase() === 'COMPLETED' ? "bg-green-50 text-green-700 border-green-200" :
-                      ['BOOKED', 'ACTIVE', 'CONFIRMED'].includes((booking.status || '').toUpperCase()) ? "bg-orange-50 text-orange-700 border-orange-200" :
+                      ['COMPLETED', 'CONFIRMED'].includes((booking.status || '').toUpperCase()) ? "bg-green-50 text-green-700 border-green-200" :
+                      ['BOOKED', 'ACTIVE'].includes((booking.status || '').toUpperCase()) ? "bg-orange-50 text-orange-700 border-orange-200" :
                       (booking.status || '').toUpperCase() === 'CANCELLED' ? "bg-red-50 text-red-700 border-red-200" :
                       "bg-gray-50 text-gray-700 border-gray-200"
                     )}>
