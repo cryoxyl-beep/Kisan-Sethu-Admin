@@ -5,6 +5,7 @@ import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import Bookings from '@/pages/Bookings';
 import CheckIn from '@/pages/CheckIn';
+import Queue from '@/pages/Queue';
 import Farmers from '@/pages/Farmers';
 import Placeholder from '@/components/Placeholder';
 
@@ -35,7 +36,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'queue',
-        element: <Placeholder title="Queue Control" />,
+        element: <Queue />,
       },
       {
         path: 'payments',

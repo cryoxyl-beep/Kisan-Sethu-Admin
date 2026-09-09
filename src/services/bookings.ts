@@ -21,12 +21,72 @@ export async function checkInBooking(bookingId: string, adminUid: string): Promi
       throw new Error("NOT_CONFIRMED");
     }
     
+    // Determine the centre ID and date for the queue
+    const centreId = data.centreId || 'UNKNOWN_CENTRE';
+    const centreName = data.centreName || 'Unknown Centre';
+    
+    // Get current date in IST for queueDate (YYYY-MM-DD)
+    const now = new Date();
+    // Adjust to IST (UTC+5:30)
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istDate = new Date(now.getTime() + istOffset);
+    const dateStr = istDate.toISOString().split('T')[0];
+    
+    // Reference for the counter document
+    const counterId = `${centreId}_${dateStr}`;
+    const counterRef = doc(db, 'queueCounters', counterId);
+    
+    // Read the counter document
+    const counterDoc = await transaction.get(counterRef);
+    let lastTokenNumber = 0;
+    if (counterDoc.exists()) {
+      lastTokenNumber = counterDoc.data().lastTokenNumber || 0;
+    }
+    
+    // Calculate new token
+    const newTokenNumber = lastTokenNumber + 1;
+    
+    // Format a human-readable prefix based on the centre name
+    const prefixMatch = centreName.match(/\b([A-Z])/g);
+    const prefix = prefixMatch ? prefixMatch.join('').substring(0, 2).toUpperCase() : 'QC';
+    const tokenLabel = `${prefix}-${newTokenNumber.toString().padStart(3, '0')}`;
+    
+    // Prepare the new queue entry document
+    // Using bookingId as the queueEntry document ID ensures 1:1 idempotency per booking
+    const queueEntryRef = doc(db, 'queueEntries', bookingId);
+    
     // Partially update the booking
     transaction.update(bookingRef, {
       status: 'CHECKED_IN',
       updatedAt: serverTimestamp(),
       checkedInAt: serverTimestamp(),
-      checkedInBy: adminUid
+      checkedInBy: adminUid,
+      queueToken: tokenLabel
+    });
+    
+    // Update or create the counter
+    transaction.set(counterRef, {
+      centreId,
+      date: dateStr,
+      lastTokenNumber: newTokenNumber,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    
+    // Create the queue entry
+    transaction.set(queueEntryRef, {
+      bookingId: bookingId,
+      trackingId: data.trackingId || '',
+      farmerId: data.farmerId || '',
+      centreId: centreId,
+      centreName: centreName,
+      tokenNumber: newTokenNumber,
+      tokenLabel: tokenLabel,
+      status: 'WAITING',
+      queueDate: dateStr,
+      checkInTime: serverTimestamp(),
+      queueJoinedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
   });
 }

@@ -20,7 +20,32 @@ export interface Booking {
   qrCodeData?: string;
   createdAt?: Timestamp | Date | string;
   updatedAt?: Timestamp | Date | string;
-  [key: string]: any; // Allow for flexible fields if schema varies slightly
+  [key: string]: any;
+}
+
+export interface QueueEntry {
+  id?: string;
+  bookingId: string;
+  trackingId: string;
+  farmerId: string;
+  centreId: string;
+  centreName: string;
+  tokenNumber: number;
+  tokenLabel: string;
+  status: string; // 'WAITING', 'NOW_SERVING', 'PROCESSING', 'COMPLETED', 'SKIPPED', 'CANCELLED'
+  queueDate: string; // 'YYYY-MM-DD'
+  checkInTime: Timestamp | Date | string;
+  queueJoinedAt: Timestamp | Date | string;
+  createdAt: Timestamp | Date | string;
+  updatedAt: Timestamp | Date | string;
+}
+
+export interface QueueCounter {
+  id?: string;
+  centreId: string;
+  date: string; // 'YYYY-MM-DD'
+  lastTokenNumber: number;
+  updatedAt: Timestamp | Date | string;
 }
 
 export interface Farmer {
